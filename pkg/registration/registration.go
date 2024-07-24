@@ -18,29 +18,23 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	avs "github.com/primev/mev-commit/contracts-abi/clients/MevCommitAVS"
-	"github.com/primev/mev-commit/x/contracts/transactor"
-	"github.com/primev/mev-commit/x/contracts/txmonitor"
 	ks "github.com/primev/mev-commit/x/keysigner"
 	"github.com/urfave/cli/v2"
 )
 
-type avsContractWithSesh struct {
-	avs  *avs.Mevcommitavs
-	sesh *avs.MevcommitavsTransactorSession
-}
-
-// TODO: re-eval if all these fields need to be stored
 type Command struct {
-	Logger           *slog.Logger
-	OperatorConfig   *eigenclitypes.OperatorConfig
-	KeystorePassword string
-	signer           *ks.KeystoreSigner
-	ethClient        *ethclient.Client
-
+	OperatorConfig      *eigenclitypes.OperatorConfig
+	KeystorePassword    string
 	MevCommitAVSAddress string
-	avsContractWithSesh *avsContractWithSesh
 
-	DelegationManagerAddress string
+	Logger    *slog.Logger
+	signer    *ks.KeystoreSigner
+	ethClient *ethclient.Client
+
+	avsT  *avs.MevcommitavsTransactor
+	avsC  *avs.MevcommitavsCaller
+	dmC   *dm.ContractDelegationManagerCaller
+	tOpts *bind.TransactOpts
 }
 
 func (c *Command) initialize(ctx *cli.Context) error {
@@ -55,7 +49,6 @@ func (c *Command) initialize(ctx *cli.Context) error {
 		c.Logger.Error("failed to get chain ID", "error", err)
 		return err
 	}
-
 	if chainID.Cmp(&c.OperatorConfig.ChainId) != 0 {
 		return fmt.Errorf("chain ID from rpc url doesn't match operator config: %s != %s",
 			chainID.String(), c.OperatorConfig.ChainId.String())
@@ -87,52 +80,47 @@ func (c *Command) initialize(ctx *cli.Context) error {
 		return fmt.Errorf("failed to create keystore signer: %w", err)
 	}
 	c.signer = signer
-
-	c.Logger.Info("signer address", "address", c.signer.GetAddress().Hex())
-
-	monitor := txmonitor.New(
-		signer.GetAddress(),
-		ethClient,
-		txmonitor.NewEVMHelperWithLogger(ethClient.Client(), c.Logger),
-		nil, // TOOD: re-eval if you need saver/store
-		c.Logger.With("component", "txmonitor"),
-		1, // TODO: re-eval max pending
-	)
-	transactor := transactor.NewTransactor(
-		ethClient,
-		monitor,
-	)
+	c.Logger.Debug("signer address", "address", c.signer.GetAddress().Hex())
 
 	avsAddress := common.HexToAddress(c.MevCommitAVSAddress)
-	mevCommitAVS, err := avs.NewMevcommitavs(avsAddress, transactor)
-	if err != nil {
-		return fmt.Errorf("failed to create mev-commit avs: %w", err)
-	}
+	c.Logger.Debug("avs address", "address", avsAddress.Hex())
 
-	c.Logger.Info("avs address", "address", avsAddress.Hex())
+	avsT, err := avs.NewMevcommitavsTransactor(avsAddress, c.ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create avs transactor: %w", err)
+	}
+	c.avsT = avsT
+
+	avsC, err := avs.NewMevcommitavsCaller(avsAddress, c.ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create avs caller: %w", err)
+	}
+	c.avsC = avsC
+
+	dmAddr := common.HexToAddress(c.OperatorConfig.ELDelegationManagerAddress)
+	c.Logger.Debug("delegation manager address", "address", dmAddr.Hex())
+
+	dmC, err := dm.NewContractDelegationManagerCaller(
+		dmAddr, c.ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create delegation manager: %w", err)
+	}
+	c.dmC = dmC
 
 	tOpts, err := c.signer.GetAuth(chainID)
 	if err != nil {
 		c.Logger.Error("failed to get auth", "error", err)
 		return err
 	}
-	// TODO: gas params would be changed here
-
-	sesh := &avs.MevcommitavsTransactorSession{
-		Contract:     &mevCommitAVS.MevcommitavsTransactor,
-		TransactOpts: *tOpts,
-	}
-
-	c.avsContractWithSesh = &avsContractWithSesh{
-		avs:  mevCommitAVS,
-		sesh: sesh,
-	}
-
-	delegationManager, err := dm.NewContractDelegationManagerCaller(common.HexToAddress(""), nil) // TODO
+	tOpts.From = c.signer.GetAddress()
+	nonce, err := c.ethClient.PendingNonceAt(ctx.Context, c.signer.GetAddress())
 	if err != nil {
-		return fmt.Errorf("failed to create delegation manager: %w", err)
+		return fmt.Errorf("failed to get pending nonce: %w", err)
 	}
-	fmt.Println(delegationManager) // TODO
+	tOpts.Nonce = big.NewInt(int64(nonce))
+	c.tOpts = tOpts
+
+	// TODO: gas params would be changed here
 
 	return nil
 }
@@ -145,7 +133,7 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		return fmt.Errorf("failed to initialize: %w", err)
 	}
 
-	operatorRegInfo, err := c.avsContractWithSesh.avs.GetOperatorRegInfo(
+	operatorRegInfo, err := c.avsC.GetOperatorRegInfo(
 		&bind.CallOpts{Context: ctx.Context}, c.signer.GetAddress())
 	if err != nil {
 		return fmt.Errorf("failed to get operator reg info: %w", err)
@@ -154,15 +142,20 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		return fmt.Errorf("signing operator already registered")
 	}
 
-	// TODO: also query EL's delegation manager
+	isEigenOperator, err := c.dmC.IsOperator(&bind.CallOpts{}, c.signer.GetAddress())
+	if err != nil {
+		return fmt.Errorf("failed to check if operator is registered with eigen core: %w", err)
+	}
+	if !isEigenOperator {
+		return fmt.Errorf("signer is not a registered operator with eigen core")
+	}
 
 	operatorSig, err := c.generateOperatorSig()
 	if err != nil {
 		return fmt.Errorf("failed to generate operator sig: %w", err)
 	}
-	panic("next func is what errors. Seems onchain issue with recovered operator address?")
 
-	tx, err := c.avsContractWithSesh.sesh.RegisterOperator(operatorSig)
+	tx, err := c.avsT.RegisterOperator(c.tOpts, operatorSig)
 	if err != nil {
 		return fmt.Errorf("failed to register operator: %w", err)
 	}
@@ -174,6 +167,9 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 	} else if rec.Status != ethtypes.ReceiptStatusSuccessful {
 		return fmt.Errorf("receipt status unsuccessful: %d", rec.Status)
 	}
+
+	c.Logger.Info("Registration complete", "txHash", tx.Hash().Hex(), "nonce", tx.Nonce())
+
 	// TODO: Confirm we don't need to set gas params manually anymore?
 	// See default gas limits in oracle's node.go
 
@@ -183,7 +179,7 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 
 func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAndExpiry, error) {
 
-	avsDirAddr, err := c.avsContractWithSesh.avs.AvsDirectory(&bind.CallOpts{})
+	avsDirAddr, err := c.avsC.AvsDirectory(&bind.CallOpts{})
 	if err != nil {
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to get avs dir address: %w", err)
 	}
@@ -223,32 +219,10 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 
 func (c *Command) RequestOperatorDeregistration(ctx *cli.Context) error {
 	c.Logger.Info("Requesting operator deregistration...")
-
-	client, err := ethclient.Dial(ctx.String("eth-node-url"))
-	if err != nil {
-		return fmt.Errorf("failed to connect to Ethereum node: %w", err)
-	}
-	c.Logger.Info("Client", "client", client)
-
-	operatorAddress := ctx.String("operator-address")
-
-	// Add your request deregistration logic here, e.g., sending a transaction to the Ethereum network
-	c.Logger.Info("Operator deregistration requested", "address", operatorAddress)
-	return nil
+	panic("TODO")
 }
 
 func (c *Command) DeregisterOperator(ctx *cli.Context) error {
 	c.Logger.Info("Deregistering operator...")
-
-	client, err := ethclient.Dial(ctx.String("eth-node-url"))
-	if err != nil {
-		return fmt.Errorf("failed to connect to Ethereum node: %w", err)
-	}
-	c.Logger.Info("Client", "client", client)
-
-	operatorAddress := ctx.String("operator-address")
-
-	// Add your deregistration logic here, e.g., sending a transaction to the Ethereum network
-	c.Logger.Info("Operator deregistered", "address", operatorAddress)
-	return nil
+	panic("TODO")
 }
