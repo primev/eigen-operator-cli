@@ -116,6 +116,7 @@ func (c *Command) initialize(ctx *cli.Context) error {
 		c.Logger.Error("failed to get auth", "error", err)
 		return err
 	}
+	// TODO: gas params would be changed here
 
 	sesh := &avs.MevcommitavsTransactorSession{
 		Contract:     &mevCommitAVS.MevcommitavsTransactor,
