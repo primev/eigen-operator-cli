@@ -3,15 +3,19 @@ package registration
 import (
 	"fmt"
 	"log/slog"
+	"math/big"
 	"os"
 	"path/filepath"
+	"time"
 
 	eigenclitypes "github.com/Layr-Labs/eigenlayer-cli/pkg/types"
 	eigencliutils "github.com/Layr-Labs/eigenlayer-cli/pkg/utils"
+	avsdir "github.com/Layr-Labs/eigensdk-go/contracts/bindings/AVSDirectory"
 	dm "github.com/Layr-Labs/eigensdk-go/contracts/bindings/DelegationManager"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	avs "github.com/primev/mev-commit/contracts-abi/clients/MevCommitAVS"
 	"github.com/primev/mev-commit/x/contracts/transactor"
@@ -33,7 +37,7 @@ type Command struct {
 	signer           *ks.KeystoreSigner
 	ethClient        *ethclient.Client
 
-	AVSAddress          string
+	MevCommitAVSAddress string
 	avsContractWithSesh *avsContractWithSesh
 
 	DelegationManagerAddress string
@@ -99,7 +103,7 @@ func (c *Command) initialize(ctx *cli.Context) error {
 		monitor,
 	)
 
-	avsAddress := common.HexToAddress(c.AVSAddress)
+	avsAddress := common.HexToAddress(c.MevCommitAVSAddress)
 	mevCommitAVS, err := avs.NewMevcommitavs(avsAddress, transactor)
 	if err != nil {
 		return fmt.Errorf("failed to create mev-commit avs: %w", err)
@@ -139,7 +143,6 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize: %w", err)
 	}
-	panic("done")
 
 	operatorRegInfo, err := c.avsContractWithSesh.avs.GetOperatorRegInfo(
 		&bind.CallOpts{Context: ctx.Context}, c.signer.GetAddress())
@@ -152,8 +155,11 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 
 	// TODO: also query EL's delegation manager
 
-	// TODO: generate actual sig
-	operatorSig := avs.ISignatureUtilsSignatureWithSaltAndExpiry{}
+	operatorSig, err := c.generateOperatorSig()
+	if err != nil {
+		return fmt.Errorf("failed to generate operator sig: %w", err)
+	}
+	panic("next func is what errors. Seems onchain issue with recovered operator address?")
 
 	tx, err := c.avsContractWithSesh.sesh.RegisterOperator(operatorSig)
 	if err != nil {
@@ -168,9 +174,50 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		return fmt.Errorf("receipt status unsuccessful: %d", rec.Status)
 	}
 	// TODO: Confirm we don't need to set gas params manually anymore?
+	// See default gas limits in oracle's node.go
 
 	// TODO: Determine if we want to support fee bump, cancelling, etc. Do some testing here..
 	return nil
+}
+
+func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAndExpiry, error) {
+
+	avsDirAddr, err := c.avsContractWithSesh.avs.AvsDirectory(&bind.CallOpts{})
+	if err != nil {
+		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to get avs dir address: %w", err)
+	}
+
+	// TODO: confirm most recent bindings are backwards compatible with avs dir on holesky
+	avsDir, err := avsdir.NewContractAVSDirectoryCaller(avsDirAddr, c.ethClient)
+	if err != nil {
+		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to create avs dir: %w", err)
+	}
+	if avsDir == nil {
+		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("avs dir is nil")
+	}
+
+	operatorAddr := c.signer.GetAddress()
+	salt := crypto.Keccak256Hash(operatorAddr.Bytes())
+	expiry := big.NewInt(time.Now().Add(time.Hour).Unix())
+	digestHash, err := avsDir.CalculateOperatorAVSRegistrationDigestHash(&bind.CallOpts{},
+		operatorAddr,
+		common.HexToAddress(c.MevCommitAVSAddress),
+		salt,
+		expiry)
+	if err != nil {
+		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to calculate digest hash: %w", err)
+	}
+
+	hashSig, err := c.signer.SignHash(digestHash[:])
+	if err != nil {
+		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to sign digest hash: %w", err)
+	}
+
+	return avs.ISignatureUtilsSignatureWithSaltAndExpiry{
+		Signature: hashSig,
+		Salt:      salt,
+		Expiry:    expiry,
+	}, nil
 }
 
 func (c *Command) RequestOperatorDeregistration(ctx *cli.Context) error {

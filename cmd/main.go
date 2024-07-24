@@ -162,10 +162,10 @@ func newAction(action func(*registration.Command, *cli.Context) error) cli.Actio
 			return err
 		}
 		if err := action(&registration.Command{
-			Logger:           logger,
-			OperatorConfig:   &operConfig,
-			KeystorePassword: ctx.String(optionKeystorePassword.Name),
-			AVSAddress:       ctx.String(optionAVSAddress.Name),
+			Logger:              logger,
+			OperatorConfig:      &operConfig,
+			KeystorePassword:    ctx.String(optionKeystorePassword.Name),
+			MevCommitAVSAddress: ctx.String(optionAVSAddress.Name),
 		}, ctx); err != nil {
 			logger.Error("command execution failed", "error", err)
 			return err

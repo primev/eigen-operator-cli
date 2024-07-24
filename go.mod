@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/Layr-Labs/eigenlayer-cli v0.8.2
-	github.com/Layr-Labs/eigensdk-go v0.1.8
+	github.com/Layr-Labs/eigensdk-go v0.1.9
 	github.com/ethereum/go-ethereum v1.14.7
 	github.com/primev/mev-commit/contracts-abi v0.0.1
 	github.com/primev/mev-commit/x v0.0.1
