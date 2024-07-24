@@ -210,6 +210,11 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to sign digest hash: %w", err)
 	}
 
+	// V is 0 or 1 from SignHash, but needs to be 27 or 28. See https://github.com/ethereum/go-ethereum/issues/19751
+	if hashSig[64] < 27 {
+		hashSig[64] += 27
+	}
+
 	return avs.ISignatureUtilsSignatureWithSaltAndExpiry{
 		Signature: hashSig,
 		Salt:      salt,
