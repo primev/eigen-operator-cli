@@ -3,6 +3,8 @@ package registration
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 
 	eigenclitypes "github.com/Layr-Labs/eigenlayer-cli/pkg/types"
 	eigencliutils "github.com/Layr-Labs/eigenlayer-cli/pkg/utils"
@@ -56,6 +58,11 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	}
 	c.Logger.Info("Chain ID", "chainID", chainID)
 
+	_, err = os.Stat(c.OperatorConfig.PrivateKeyStorePath)
+	if err != nil {
+		return fmt.Errorf("no keystore file found at path: %s", c.OperatorConfig.PrivateKeyStorePath)
+	}
+
 	if c.KeystorePassword == "" {
 		prompter := eigencliutils.NewPrompter()
 		keystorePwd, err := prompter.InputHiddenString(
@@ -70,11 +77,14 @@ func (c *Command) initialize(ctx *cli.Context) error {
 		c.KeystorePassword = keystorePwd
 	}
 
-	signer, err := ks.NewKeystoreSigner(c.OperatorConfig.PrivateKeyStorePath, c.KeystorePassword)
+	dir := filepath.Dir(c.OperatorConfig.PrivateKeyStorePath)
+	signer, err := ks.NewKeystoreSigner(dir, c.KeystorePassword)
 	if err != nil {
 		return fmt.Errorf("failed to create keystore signer: %w", err)
 	}
 	c.signer = signer
+
+	c.Logger.Info("signer address", "address", c.signer.GetAddress().Hex())
 
 	monitor := txmonitor.New(
 		signer.GetAddress(),
@@ -94,6 +104,8 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create mev-commit avs: %w", err)
 	}
+
+	c.Logger.Info("avs address", "address", avsAddress.Hex())
 
 	tOpts, err := c.signer.GetAuth(chainID)
 	if err != nil {
@@ -115,7 +127,7 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create delegation manager: %w", err)
 	}
-	fmt.Println(delegationManager)
+	fmt.Println(delegationManager) // TODO
 
 	return nil
 }
@@ -127,6 +139,7 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize: %w", err)
 	}
+	panic("done")
 
 	operatorRegInfo, err := c.avsContractWithSesh.avs.GetOperatorRegInfo(
 		&bind.CallOpts{Context: ctx.Context}, c.signer.GetAddress())

@@ -4,6 +4,7 @@ import (
 	registration "eigen-operator-cli/pkg/registration"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -26,13 +27,14 @@ var (
 		Name:     "avs-address",
 		Usage:    "Address of the mev-commit AVS contract",
 		EnvVars:  []string{"AVS_ADDRESS"},
-		Required: true, // TODO: ask user interactively
+		Required: true,
 	})
 
 	optionKeystorePassword = altsrc.NewStringFlag(&cli.StringFlag{
-		Name:    "keystore-password",
-		Usage:   "Password for the keystore",
-		EnvVars: []string{"KEYSTORE_PASSWORD"},
+		Name:     "keystore-password",
+		Usage:    "Password for the keystore",
+		EnvVars:  []string{"KEYSTORE_PASSWORD"},
+		Required: false,
 	})
 
 	optionLogLevel = altsrc.NewStringFlag(&cli.StringFlag{
@@ -89,6 +91,14 @@ func readConfig(file string) (eigenclitypes.OperatorConfig, error) {
 	var config eigenclitypes.OperatorConfig
 	if err := yaml.Unmarshal(bz, &config); err != nil {
 		return eigenclitypes.OperatorConfig{}, fmt.Errorf("unmarshal eigen config file: %w", err)
+	}
+
+	if !filepath.IsAbs(config.PrivateKeyStorePath) {
+		absPath, err := filepath.Abs(config.PrivateKeyStorePath)
+		if err != nil {
+			return eigenclitypes.OperatorConfig{}, fmt.Errorf("get absolute path: %w", err)
+		}
+		config.PrivateKeyStorePath = absPath
 	}
 
 	return config, nil

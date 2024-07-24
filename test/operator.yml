@@ -1,0 +1,11 @@
+operator:
+  address: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+  earnings_receiver_address: 0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+  delegation_approver_address: "0x0000000000000000000000000000000000000000"
+  staker_opt_out_window_blocks: 0
+  metadata_url: https://raw.githubusercontent.com/Layr-Labs/eigenlayer-cli/master/pkg/operator/config/metadata-example.json
+el_delegation_manager_address: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+eth_rpc_url: http://localhost:8545
+private_key_store_path: test/keystore/UTC--2024-07-24T00-39-42.550683000Z--f39fd6e51aad88f6f4ce6ab8827279cfffb92266
+signer_type: local_keystore
+chain_id: 31337
