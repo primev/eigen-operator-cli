@@ -40,16 +40,16 @@ changelog:
 release:
   github:
     owner: primev
-    name: mev-commit-operator-cli
+    name: eigen-operator-cli
 
   prerelease: auto
 
   name_template: "v{{ .Version }}"
 
   header: |
-    ## MEV-Commit Operator CLI v{{ .Version }}
+    ## MEV-Commit AVS Operator CLI v{{ .Version }}
 
-    This is a pre-release version of the MEV-Commit Operator CLI. Use with caution.
+    This is a pre-release version of the operator CLI for registration with the mev-commit AVS. Use with caution.
 
   footer: |
     **Full Changelog**: https://github.com/primev/mev-commit-operator-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
