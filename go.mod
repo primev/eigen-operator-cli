@@ -43,7 +43,7 @@ require (
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
-	github.com/supranational/blst v0.3.12 // indirect
+	github.com/supranational/blst v0.3.13 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
@@ -60,6 +60,8 @@ require (
 )
 
 replace (
+	// TODO: bump geth once https://github.com/ethereum/go-ethereum/issues/30188 is fixed in a release. For now we downgrade btcec.
+	github.com/btcsuite/btcd/btcec/v2 => github.com/btcsuite/btcd/btcec/v2 v2.3.3
 	github.com/primev/mev-commit/contracts-abi => github.com/primev/mev-commit/contracts-abi v0.0.0-20240722231656-985b84f76a3c
 	github.com/primev/mev-commit/x => github.com/primev/mev-commit/x v0.0.0-20240722231656-985b84f76a3c
 )
