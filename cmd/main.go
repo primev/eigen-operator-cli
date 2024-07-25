@@ -176,7 +176,7 @@ func newAction(action func(*registration.Command, *cli.Context) error) cli.Actio
 			MevCommitAVSAddress: ctx.String(optionAVSAddress.Name),
 			BoostGasParams:      ctx.Bool(optionBoostGasParams.Name),
 		}, ctx); err != nil {
-			logger.Error("command execution failed", "error", err)
+			logger.Error("command execution failed")
 			return err
 		}
 		return nil

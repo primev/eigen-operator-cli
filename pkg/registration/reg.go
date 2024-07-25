@@ -17,7 +17,6 @@ import (
 )
 
 func (c *Command) RegisterOperator(ctx *cli.Context) error {
-
 	c.Logger.Info("Registering operator...")
 	err := c.initialize(ctx)
 	if err != nil {
