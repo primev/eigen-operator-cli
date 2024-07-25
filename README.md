@@ -26,9 +26,12 @@ OPTIONS:
    --help, -h                 show help
 ```
 
-The first three command options are required. The keystore password can be provided as an option, otherwise the CLI will prompt for it.
+The first three command options are required. Your `operator.yml` will need to be accessible to perform this registration. This file is created as part of [registering as an operator with the EigenLayer CLI](https://docs.eigenlayer.xyz/eigenlayer/operator-guides/operator-installation), and does not need to be modified. See [Eigenlayer reference example](https://github.com/Layr-Labs/eigenlayer-cli/blob/master/pkg/operator/config/operator-config-example.yaml).
 
-The registration command will query data from the AVS contracts and sign over a hash of the following data:
+
+The keystore password can be provided as an option, otherwise the CLI will prompt for it.
+
+The registration command will query data from the AVS contracts and sign over a hash of the following:
 
 1. Operator address
 2. Mev-commit AVS address
