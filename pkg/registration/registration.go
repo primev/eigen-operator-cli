@@ -1,6 +1,8 @@
 package registration
 
 import (
+	"context"
+	"eigen-operator-cli/pkg/tx"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -26,15 +28,14 @@ type Command struct {
 	OperatorConfig      *eigenclitypes.OperatorConfig
 	KeystorePassword    string
 	MevCommitAVSAddress string
-
-	Logger    *slog.Logger
-	signer    *ks.KeystoreSigner
-	ethClient *ethclient.Client
-
-	avsT  *avs.MevcommitavsTransactor
-	avsC  *avs.MevcommitavsCaller
-	dmC   *dm.ContractDelegationManagerCaller
-	tOpts *bind.TransactOpts
+	BoostGasParams      bool
+	Logger              *slog.Logger
+	signer              *ks.KeystoreSigner
+	ethClient           *ethclient.Client
+	avsT                *avs.MevcommitavsTransactor
+	avsC                *avs.MevcommitavsCaller
+	dmC                 *dm.ContractDelegationManagerCaller
+	tOpts               *bind.TransactOpts
 }
 
 func (c *Command) initialize(ctx *cli.Context) error {
@@ -82,6 +83,15 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	c.signer = signer
 	c.Logger.Debug("signer address", "address", c.signer.GetAddress().Hex())
 
+	pending, err := tx.PendingTransactionsExist(c.ethClient, ctx.Context, c.signer.GetAddress())
+	if err != nil {
+		return fmt.Errorf("failed to check for pending transactions: %w", err)
+	}
+	if pending {
+		return fmt.Errorf("pending transactions found for signing operator account. " +
+			"Please cancel or wait for them to be mined before proceeding")
+	}
+
 	avsAddress := common.HexToAddress(c.MevCommitAVSAddress)
 	c.Logger.Debug("avs address", "address", avsAddress.Hex())
 
@@ -100,8 +110,7 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	dmAddr := common.HexToAddress(c.OperatorConfig.ELDelegationManagerAddress)
 	c.Logger.Debug("delegation manager address", "address", dmAddr.Hex())
 
-	dmC, err := dm.NewContractDelegationManagerCaller(
-		dmAddr, c.ethClient)
+	dmC, err := dm.NewContractDelegationManagerCaller(dmAddr, c.ethClient)
 	if err != nil {
 		return fmt.Errorf("failed to create delegation manager: %w", err)
 	}
@@ -120,7 +129,13 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	tOpts.Nonce = big.NewInt(int64(nonce))
 	c.tOpts = tOpts
 
-	// TODO: gas params would be changed here
+	gasTip, gasPrice, err := tx.SuggestGasTipCapAndPrice(ctx.Context, c.ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to suggest gas tip cap and price: %w", err)
+	}
+	c.tOpts.GasFeeCap = gasPrice
+	c.tOpts.GasTipCap = gasTip
+	c.tOpts.GasLimit = 200000 // TODO: Test this value
 
 	return nil
 }
@@ -155,25 +170,40 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		return fmt.Errorf("failed to generate operator sig: %w", err)
 	}
 
-	tx, err := c.avsT.RegisterOperator(c.tOpts, operatorSig)
-	if err != nil {
-		return fmt.Errorf("failed to register operator: %w", err)
+	submitTx := func(
+		ctx context.Context,
+		opts *bind.TransactOpts,
+	) (*ethtypes.Transaction, error) {
+		tx, err := c.avsT.RegisterOperator(c.tOpts, operatorSig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to register operator: %w", err)
+		}
+		c.Logger.Info("RegisterOperator tx sent", "txHash", tx.Hash().Hex(), "nonce", tx.Nonce())
+		return tx, nil
 	}
 
-	c.Logger.Info("waiting for tx to be mined", "txHash", tx.Hash().Hex(), "nonce", tx.Nonce())
-	rec, err := bind.WaitMined(ctx.Context, c.ethClient, tx)
-	if err != nil {
-		return fmt.Errorf("failed to wait for tx to be mined: %w", err)
-	} else if rec.Status != ethtypes.ReceiptStatusSuccessful {
-		return fmt.Errorf("receipt status unsuccessful: %d", rec.Status)
+	var receipt *ethtypes.Receipt
+	if c.BoostGasParams {
+		receipt, err = tx.WaitMinedWithRetry(ctx.Context, c.tOpts, submitTx, c.ethClient, c.Logger)
+		if err != nil {
+			return fmt.Errorf("failed to wait for tx to be mined: %w", err)
+		}
+	} else {
+		tx, err := submitTx(ctx.Context, c.tOpts)
+		if err != nil {
+			return fmt.Errorf("failed to submit tx: %w", err)
+		}
+		c.Logger.Info("waiting for tx to be mined", "txHash", tx.Hash().Hex(), "nonce", tx.Nonce())
+		receipt, err = bind.WaitMined(ctx.Context, c.ethClient, tx)
+		if err != nil {
+			return fmt.Errorf("failed to wait for tx to be mined: %w", err)
+		}
+	}
+	if receipt.Status != ethtypes.ReceiptStatusSuccessful {
+		return fmt.Errorf("receipt status unsuccessful: %d", receipt.Status)
 	}
 
-	c.Logger.Info("Registration complete", "txHash", tx.Hash().Hex(), "nonce", tx.Nonce())
-
-	// TODO: Confirm we don't need to set gas params manually anymore?
-	// See default gas limits in oracle's node.go
-
-	// TODO: Determine if we want to support fee bump, cancelling, etc. Do some testing here..
+	c.Logger.Info("Registration complete", "txHash", receipt.TxHash.Hex())
 	return nil
 }
 

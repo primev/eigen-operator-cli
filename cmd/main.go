@@ -30,6 +30,13 @@ var (
 		Required: true,
 	})
 
+	optionBoostGasParams = altsrc.NewStringFlag(&cli.StringFlag{
+		Name:     "boost-gas-params",
+		Usage:    "Whether to boost gas params to speed up tx inclusion",
+		EnvVars:  []string{"BOOST_GAS_PARAMS"},
+		Required: true,
+	})
+
 	optionKeystorePassword = altsrc.NewStringFlag(&cli.StringFlag{
 		Name:     "keystore-password",
 		Usage:    "Password for the keystore",
@@ -107,8 +114,9 @@ func readConfig(file string) (eigenclitypes.OperatorConfig, error) {
 func main() {
 	flags := []cli.Flag{
 		optionOperatorConfig,
-		optionKeystorePassword,
 		optionAVSAddress,
+		optionBoostGasParams,
+		optionKeystorePassword,
 		optionLogLevel,
 		optionLogFmt,
 		optionLogTags,
@@ -166,6 +174,7 @@ func newAction(action func(*registration.Command, *cli.Context) error) cli.Actio
 			OperatorConfig:      &operConfig,
 			KeystorePassword:    ctx.String(optionKeystorePassword.Name),
 			MevCommitAVSAddress: ctx.String(optionAVSAddress.Name),
+			BoostGasParams:      ctx.Bool(optionBoostGasParams.Name),
 		}, ctx); err != nil {
 			logger.Error("command execution failed", "error", err)
 			return err
