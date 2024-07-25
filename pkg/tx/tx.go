@@ -14,8 +14,19 @@ import (
 	client "github.com/ethereum/go-ethereum/ethclient"
 )
 
+type EthClient interface {
+	bind.DeployBackend
+	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
+	NonceAt(ctx context.Context, account common.Address, blockNumber *big.Int) (uint64, error)
+	SuggestGasTipCap(ctx context.Context) (*big.Int, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
+}
+
+// Primary target for EthClient is go-ethereum/ethclient/Client
+var _ EthClient = (*client.Client)(nil)
+
 func PendingTransactionsExist(
-	client *client.Client, ctx context.Context, address common.Address) (bool, error) {
+	client EthClient, ctx context.Context, address common.Address) (bool, error) {
 
 	currentNonce, err := client.PendingNonceAt(ctx, address)
 	if err != nil {
@@ -28,7 +39,7 @@ func PendingTransactionsExist(
 	return currentNonce > latestNonce, nil
 }
 
-func SuggestGasTipCapAndPrice(ctx context.Context, client *client.Client) (
+func SuggestGasTipCapAndPrice(ctx context.Context, client EthClient) (
 	gasTip *big.Int, gasPrice *big.Int, err error) {
 
 	// Returns priority fee per gas
@@ -44,7 +55,13 @@ func SuggestGasTipCapAndPrice(ctx context.Context, client *client.Client) (
 	return gasTip, gasPrice, nil
 }
 
-func BoostTipForTransactOpts(ctx context.Context, opts *bind.TransactOpts, client *client.Client, logger *slog.Logger) error {
+// Boosts the gas tip and base fee by just above 10% of highest recent suggestion from client.
+func BoostTipForTransactOpts(ctx context.Context, opts *bind.TransactOpts, client EthClient, logger *slog.Logger) error {
+
+	if opts.GasTipCap == nil || opts.GasFeeCap == nil {
+		return fmt.Errorf("gas tip cap and gas fee cap must be set")
+	}
+
 	logger.Debug(
 		"gas params for tx that were not included",
 		"gas_tip", opts.GasTipCap.String(),
@@ -84,7 +101,6 @@ func BoostTipForTransactOpts(ctx context.Context, opts *bind.TransactOpts, clien
 	boostedTip = boostedTip.Add(boostedTip, big.NewInt(1))
 
 	boostedBaseFee := addTenPercentTo(maxBaseFee)
-	boostedBaseFee = boostedBaseFee.Add(boostedBaseFee, big.NewInt(1))
 
 	opts.GasTipCap = boostedTip
 	opts.GasFeeCap = new(big.Int).Add(boostedBaseFee, boostedTip)
@@ -112,7 +128,7 @@ type TxSubmitFunc func(
 )
 
 func WaitMinedWithRetry(ctx context.Context, opts *bind.TransactOpts, submitTx TxSubmitFunc,
-	client *client.Client, logger *slog.Logger) (*types.Receipt, error) {
+	client EthClient, logger *slog.Logger) (*types.Receipt, error) {
 
 	const maxRetries = 10
 	var err error
