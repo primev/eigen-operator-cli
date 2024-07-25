@@ -1,69 +1,55 @@
 version: 1
 
-project_name: eigen-operator-cli
-dist: /tmp/dist/eigen-operator-cli
+project_name: mev-commit-operator-cli
+dist: /tmp/dist/mev-commit-operator-cli
 
 builds:
   - env:
       - CGO_ENABLED=0
     goos:
       - linux
-      - windows
       - darwin
     goarch:
       - amd64
       - arm64
-    goarm:
-      - 7
-    ignore:
-      - goos: windows
-        goarch: arm64
-    dir: ./infrastructure/tools/eigen-operator-cli
+    dir: .
     main: ./cmd
-    binary: "{{ .ProjectName }}"
+    binary: "mev-commit-operator-cli"
 
 archives:
   - format: tar.gz
     name_template: >-
-      {{ .Binary }}_
-      {{- with index .Env "RELEASE_VERSION" -}}
-        {{ . }}
-      {{- else -}}
-        {{- if .IsSnapshot }}{{ .ShortCommit }}
-        {{- else }}{{ .Version }}
-        {{- end }}
-      {{- end -}}
-      {{- with index .Env "DIRTY_SUFFIX" -}}
-      {{ . }}
-      {{- end -}}_
+      {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
-      {{- else if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}
-      {{- end }}
+      {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    format_overrides:
-      - goos: windows
-        format: zip
 
 checksum:
-  name_template: >-
-    {{ .ProjectName }}_
-    {{- with index .Env "RELEASE_VERSION" -}}
-      {{ . }}
-    {{- else -}}
-      {{- if .IsSnapshot }}{{ .ShortCommit }}
-      {{- else }}{{ .Version }}
-      {{- end }}
-    {{- end -}}
-    {{- with index .Env "DIRTY_SUFFIX" -}}
-    {{ . }}
-    {{- end -}}
-    _checksums.txt
+  name_template: 'checksums.txt'
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+
+release:
+  github:
+    owner: primev
+    name: mev-commit-operator-cli
+
+  prerelease: auto
+
+  name_template: "v{{ .Version }}"
+
+  header: |
+    ## MEV-Commit Operator CLI v{{ .Version }}
+
+    This is a pre-release version of the MEV-Commit Operator CLI. Use with caution.
+
+  footer: |
+    **Full Changelog**: https://github.com/primev/mev-commit-operator-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
