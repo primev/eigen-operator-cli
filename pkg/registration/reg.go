@@ -89,7 +89,6 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to get avs dir address: %w", err)
 	}
 
-	// TODO: confirm most recent bindings are backwards compatible with avs dir on holesky
 	avsDir, err := avsdir.NewContractAVSDirectoryCaller(avsDirAddr, c.ethClient)
 	if err != nil {
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to create avs dir: %w", err)

@@ -130,7 +130,7 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	}
 	c.tOpts.GasFeeCap = gasPrice
 	c.tOpts.GasTipCap = gasTip
-	c.tOpts.GasLimit = 200000 // TODO: Test this value
+	c.tOpts.GasLimit = 300000
 
 	return nil
 }
