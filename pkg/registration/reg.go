@@ -8,6 +8,7 @@ import (
 	"time"
 
 	avsdir "github.com/Layr-Labs/eigensdk-go/contracts/bindings/AVSDirectory"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -75,7 +76,8 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		}
 	}
 	if receipt.Status != ethtypes.ReceiptStatusSuccessful {
-		return fmt.Errorf("receipt status unsuccessful: %d", receipt.Status)
+		errRevertReason := c.getRevertReason(ctx.Context, receipt)
+		return fmt.Errorf("receipt status unsuccessful: %d, %w", receipt.Status, errRevertReason)
 	}
 
 	c.Logger.Info("Registration complete", "txHash", receipt.TxHash.Hex())
@@ -98,7 +100,7 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 	}
 
 	operatorAddr := c.account.Address
-	salt := crypto.Keccak256Hash(operatorAddr.Bytes())
+	salt := crypto.Keccak256Hash(operatorAddr.Bytes(), []byte(c.MevCommitAVSAddress))
 	expiry := big.NewInt(time.Now().Add(time.Hour).Unix())
 	digestHash, err := avsDir.CalculateOperatorAVSRegistrationDigestHash(&bind.CallOpts{},
 		operatorAddr,
@@ -124,4 +126,28 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 		Salt:      salt,
 		Expiry:    expiry,
 	}, nil
+}
+
+func (c *Command) getRevertReason(ctx context.Context, receipt *ethtypes.Receipt) error {
+	tx, _, err := c.ethClient.TransactionByHash(ctx, receipt.TxHash)
+	if err != nil {
+		return fmt.Errorf("failed to get transaction: %w", err)
+	}
+
+	from, err := c.ethClient.TransactionSender(ctx, tx, receipt.BlockHash, receipt.TransactionIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get transaction sender: %w", err)
+	}
+
+	msg := ethereum.CallMsg{
+		From:     from,
+		To:       tx.To(),
+		Gas:      tx.Gas(),
+		GasPrice: tx.GasPrice(),
+		Value:    tx.Value(),
+		Data:     tx.Data(),
+	}
+
+	_, err = c.ethClient.CallContract(ctx, msg, receipt.BlockNumber)
+	return err
 }
