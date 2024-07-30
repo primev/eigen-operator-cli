@@ -18,7 +18,7 @@ func (c *Command) DeregisterOperator(ctx *cli.Context) error {
 	}
 
 	operatorRegInfo, err := c.avsC.GetOperatorRegInfo(
-		&bind.CallOpts{Context: ctx.Context}, c.signer.GetAddress())
+		&bind.CallOpts{Context: ctx.Context}, c.account.Address)
 	if err != nil {
 		return fmt.Errorf("failed to get operator reg info: %w", err)
 	}
@@ -49,7 +49,7 @@ func (c *Command) DeregisterOperator(ctx *cli.Context) error {
 		ctx context.Context,
 		opts *bind.TransactOpts,
 	) (*ethtypes.Transaction, error) {
-		tx, err := c.avsT.DeregisterOperator(c.tOpts, c.signer.GetAddress())
+		tx, err := c.avsT.DeregisterOperator(c.tOpts, c.account.Address)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deregister operator: %w", err)
 		}

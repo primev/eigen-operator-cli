@@ -11,11 +11,12 @@ import (
 	eigenclitypes "github.com/Layr-Labs/eigenlayer-cli/pkg/types"
 	eigencliutils "github.com/Layr-Labs/eigenlayer-cli/pkg/utils"
 	dm "github.com/Layr-Labs/eigensdk-go/contracts/bindings/DelegationManager"
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	avs "github.com/primev/mev-commit/contracts-abi/clients/MevCommitAVS"
-	ks "github.com/primev/mev-commit/x/keysigner"
 	"github.com/urfave/cli/v2"
 )
 
@@ -25,7 +26,8 @@ type Command struct {
 	MevCommitAVSAddress string
 	BoostGasParams      bool
 	Logger              *slog.Logger
-	signer              *ks.KeystoreSigner
+	keystore            *keystore.KeyStore
+	account             accounts.Account
 	ethClient           *ethclient.Client
 	avsT                *avs.MevcommitavsTransactor
 	avsC                *avs.MevcommitavsCaller
@@ -71,14 +73,37 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	}
 
 	dir := filepath.Dir(c.OperatorConfig.PrivateKeyStorePath)
-	signer, err := ks.NewKeystoreSigner(dir, c.KeystorePassword)
-	if err != nil {
-		return fmt.Errorf("failed to create keystore signer: %w", err)
-	}
-	c.signer = signer
-	c.Logger.Debug("signer address", "address", c.signer.GetAddress().Hex())
 
-	pending, err := tx.PendingTransactionsExist(c.ethClient, ctx.Context, c.signer.GetAddress())
+	keystore := keystore.NewKeyStore(dir, keystore.LightScryptN, keystore.LightScryptP)
+	ksAccounts := keystore.Accounts()
+
+	var account accounts.Account
+	if len(ksAccounts) == 0 {
+		return fmt.Errorf("no accounts in dir: %s", dir)
+	} else {
+		found := false
+		for _, acc := range ksAccounts {
+			if acc.Address == common.HexToAddress(c.OperatorConfig.Operator.Address) {
+				account = acc
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("account %s not found in keystore dir: %s", c.OperatorConfig.Operator.Address, dir)
+		}
+	}
+
+	if err := keystore.Unlock(account, c.KeystorePassword); err != nil {
+		return fmt.Errorf("failed to unlock account: %w", err)
+	}
+
+	c.keystore = keystore
+	c.account = account
+
+	c.Logger.Debug("signer address", "address", c.account.Address.Hex())
+
+	pending, err := tx.PendingTransactionsExist(c.ethClient, ctx.Context, c.account.Address)
 	if err != nil {
 		return fmt.Errorf("failed to check for pending transactions: %w", err)
 	}
@@ -111,13 +136,13 @@ func (c *Command) initialize(ctx *cli.Context) error {
 	}
 	c.dmC = dmC
 
-	tOpts, err := c.signer.GetAuth(chainID)
+	tOpts, err := bind.NewKeyStoreTransactorWithChainID(keystore, account, chainID)
 	if err != nil {
 		c.Logger.Error("failed to get auth", "error", err)
 		return err
 	}
-	tOpts.From = c.signer.GetAddress()
-	nonce, err := c.ethClient.PendingNonceAt(ctx.Context, c.signer.GetAddress())
+	tOpts.From = account.Address
+	nonce, err := c.ethClient.PendingNonceAt(ctx.Context, account.Address)
 	if err != nil {
 		return fmt.Errorf("failed to get pending nonce: %w", err)
 	}

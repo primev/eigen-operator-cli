@@ -24,7 +24,7 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 	}
 
 	operatorRegInfo, err := c.avsC.GetOperatorRegInfo(
-		&bind.CallOpts{Context: ctx.Context}, c.signer.GetAddress())
+		&bind.CallOpts{Context: ctx.Context}, c.account.Address)
 	if err != nil {
 		return fmt.Errorf("failed to get operator reg info: %w", err)
 	}
@@ -32,7 +32,7 @@ func (c *Command) RegisterOperator(ctx *cli.Context) error {
 		return fmt.Errorf("signing operator already registered")
 	}
 
-	isEigenOperator, err := c.dmC.IsOperator(&bind.CallOpts{}, c.signer.GetAddress())
+	isEigenOperator, err := c.dmC.IsOperator(&bind.CallOpts{}, c.account.Address)
 	if err != nil {
 		return fmt.Errorf("failed to check if operator is registered with eigen core: %w", err)
 	}
@@ -97,7 +97,7 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("avs dir is nil")
 	}
 
-	operatorAddr := c.signer.GetAddress()
+	operatorAddr := c.account.Address
 	salt := crypto.Keccak256Hash(operatorAddr.Bytes())
 	expiry := big.NewInt(time.Now().Add(time.Hour).Unix())
 	digestHash, err := avsDir.CalculateOperatorAVSRegistrationDigestHash(&bind.CallOpts{},
@@ -109,7 +109,7 @@ func (c *Command) generateOperatorSig() (avs.ISignatureUtilsSignatureWithSaltAnd
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to calculate digest hash: %w", err)
 	}
 
-	hashSig, err := c.signer.SignHash(digestHash[:])
+	hashSig, err := c.keystore.SignHash(c.account, digestHash[:])
 	if err != nil {
 		return avs.ISignatureUtilsSignatureWithSaltAndExpiry{}, fmt.Errorf("failed to sign digest hash: %w", err)
 	}
